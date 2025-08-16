@@ -1,0 +1,58 @@
+name: Update EPG
+on:
+  schedule:
+    - cron: '00 16 * * *'
+  workflow_dispatch:  # 允许手动触发工作流
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      # 检出仓库代码到工作目录
+
+    - name: Set up Git user
+      run: |
+        git config --local user.name "github-actions[bot]"
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+      # 配置 Git 提交者信息
+
+    - name: Create output directory (if not exists)
+      run: mkdir -p output
+      # 创建 output 目录（-p 确保父目录不存在时不报错）
+
+    - name: Download EPG File to output directory
+      run: wget http://epg.51zmt.top:8000/e.xml -O output/epg.xml
+      # 将 EPG 文件下载到 output 目录下，保存为 epg.xml
+
+    - name: Calculate SHA-256 hash of new epg.xml
+      id: calculate_hash
+      run: |
+        echo "hash=$(sha256sum output/epg.xml | awk '{print $1}')" >> "$GITHUB_ENV"
+      # 计算 output 目录下新下载文件的哈希值
+
+    - name: Get previous SHA-256 hash from last commit
+      id: get_previous_hash
+      run: |
+        if git show HEAD:output/epg.xml > /dev/null 2>&1; then
+          # 若历史提交中存在 output/epg.xml，则获取其哈希
+          echo "previous_hash=$(git show HEAD:output/epg.xml | sha256sum | awk '{print $1}')" >> "$GITHUB_ENV"
+        else
+          # 若文件不存在，设为 none
+          echo "previous_hash=none" >> "$GITHUB_ENV"
+        fi
+      # 获取上次提交中 output/epg.xml 的哈希值（适配新路径）
+
+    - name: Compare hashes and update if different
+      run: |
+        if [ "${{ env.hash }}" != "${{ env.previous_hash }}" ]; then
+          git add output/epg.xml  # 添加 output 目录下的文件
+          git commit -m "📡 $(date +'%Y-%m-%d %H:%M:%S')"
+          git push origin main
+        else
+          echo "No changes detected in output/epg.xml, skipping commit."
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # 对比哈希并提交更新（路径调整为 output/epg.xml）
+        TZ: Asia/Shanghai  # 设置环境变量，将时区设置为上海
